@@ -46,9 +46,9 @@ except Exception as e:
     # You might want to exit here depending on how critical the camera is on startup
 
 # Define the buttons and LEDs
-led1_button = Button(2)
-led2_button = Button(3)
-capture_button = Button(4, hold_time=2)
+led1_button = Button(16)  # Changed from pin 2 to avoid potential conflicts
+led2_button = Button(20)  # Changed from pin 3 to avoid I2C conflicts
+capture_button = Button(21, hold_time=2)  # Changed from pin 4 to avoid I2C conflicts
 led1 = LED(18, active_high=False)
 led2 = LED(23, active_high=False)
 ledc = LED(15)
