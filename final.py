@@ -21,6 +21,11 @@ IMAGE_DIRECTORY = "img/"
 # Ensure image directory exists
 os.makedirs(IMAGE_DIRECTORY, exist_ok=True)
 
+# Battery operation mode
+# Set to True to enable inactivity-based automatic shutdown
+# Set to False to disable inactivity-based automatic shutdown (when powered externally)
+BATTERY_OPERATION = False  # Change to True when running on battery
+
 # --- Global State & Locks ---
 state_lock = threading.Lock()
 camera_lock = threading.Lock()
@@ -107,7 +112,8 @@ def shutdown_monitor():
             is_client_active = client_status["status"]
 
         # Power off after 15 minutes of inactivity and no active client
-        if duration > 900 and not is_client_active:
+        # Only when BATTERY_OPERATION is enabled
+        if BATTERY_OPERATION and duration > 900 and not is_client_active:
             logging.warning("Inactivity shutdown triggered.")
             # Blink LEDs rapidly before shutdown as a warning
             for _ in range(5):
