@@ -41,7 +41,8 @@ try:
     # Reduced preview size slightly for better streaming performance, adjust if needed
     transform = Transform(rotation=90)
     camera.configure(camera.create_preview_configuration(
-        main={"format": 'XRGB8888', "size": (720, 1280)},
+        main={"format": 'XRGB8888', "size": (720, 1280)},   # high-res for still captures
+        lores={"size": (360, 640), "format": "YUV420"},       # low-res for live stream
         transform=transform
     ))
     camera.start()
@@ -260,16 +261,19 @@ def poweroff_route():
 def generate_frames():
     while True:
         try:
-            # Use lock to ensure we don't try to stream while a high-res capture is happening
+            # Capture from lores stream (360x640 YUV420) — much lighter on CPU than main
             with camera_lock:
-                frame = camera.capture_array()
+                frame = camera.capture_array("lores")
 
             if frame is None:
                 time.sleep(0.1)
                 continue
 
-            # Encode frame to JPEG at reduced quality to lower CPU and bandwidth load
-            ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
+            # Convert YUV420 planar → BGR for OpenCV
+            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_I420)
+
+            # Low JPEG quality for stream — visually fine, much less CPU/bandwidth
+            ret, buffer = cv2.imencode('.jpg', frame_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
             if not ret:
                 continue
 
