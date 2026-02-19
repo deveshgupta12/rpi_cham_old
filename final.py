@@ -259,25 +259,34 @@ def poweroff_route():
 
 def generate_frames():
     while True:
-        # Use lock to ensure we don't try to stream while a high-res capture is happening
-        with camera_lock:
-            frame = camera.capture_array()
-        
-        if frame is None:
-            time.sleep(0.1)
-            continue
+        try:
+            # Use lock to ensure we don't try to stream while a high-res capture is happening
+            with camera_lock:
+                frame = camera.capture_array()
 
-        # Encode frame to JPEG
-        ret, buffer = cv2.imencode('.jpg', frame)
-        if not ret:
-            continue
-            
-        frame_bytes = buffer.tobytes()
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-        
-        # Optional: small sleep to cap framerate and reduce CPU load if needed
-        # time.sleep(0.03) 
+            if frame is None:
+                time.sleep(0.1)
+                continue
+
+            # Encode frame to JPEG at reduced quality to lower CPU and bandwidth load
+            ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
+            if not ret:
+                continue
+
+            frame_bytes = buffer.tobytes()
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+
+            # Cap at ~20fps to prevent CPU saturation on the Pi
+            time.sleep(0.05)
+
+        except GeneratorExit:
+            # Client disconnected — stop the loop cleanly
+            logging.info("Video stream client disconnected.")
+            break
+        except Exception as e:
+            logging.error(f"Streaming error: {e}")
+            time.sleep(0.1)
 
 @app.route('/video_feed')
 def video_feed():
