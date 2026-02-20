@@ -269,11 +269,34 @@ def generate_frames():
                 time.sleep(0.1)
                 continue
 
-            # Convert YUV420 planar → BGR for OpenCV
-            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_I420)
+            # Get the actual dimensions of the captured frame
+            height, width = frame.shape[:2]
+            
+            # Handle potential padding bytes that cause color artifacts
+            # The configured width is 640, so we ensure we don't exceed that
+            if width > 640:
+                frame = frame[:, :640]
+                width = 640
+                
+            # Try multiple YUV conversion methods to find the one with best color representation
+            try:
+                # First try YV12 which often produces better colors
+                frame_bgr = cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_YV12)
+            except:
+                try:
+                    # Fallback to I420 if YV12 doesn't work
+                    frame_bgr = cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_I420)
+                except:
+                    # Last resort: convert to grayscale and then to BGR to avoid color issues
+                    frame_gray = cv2.cvtColor(frame, cv2.COLOR_YUV2GRAY_I420)
+                    frame_bgr = cv2.cvtColor(frame_gray, cv2.COLOR_GRAY2BGR)
 
+            # Apply slight color correction to normalize colors
+            # Adjust contrast and brightness if needed (values can be tuned)
+            frame_bgr = cv2.convertScaleAbs(frame_bgr, alpha=1.05, beta=-2)
+            
             # Low JPEG quality for stream — visually fine, much less CPU/bandwidth
-            ret, buffer = cv2.imencode('.jpg', frame_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
+            ret, buffer = cv2.imencode('.jpg', frame_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 65])
             if not ret:
                 continue
 
