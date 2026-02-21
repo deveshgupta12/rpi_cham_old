@@ -259,6 +259,9 @@ def poweroff_route():
 # --- Video Streaming ---
 
 def generate_frames():
+    # Configured lores stream width — used to strip hardware alignment padding
+    LORES_WIDTH = 360
+
     while True:
         try:
             # Capture from lores stream (360x640 YUV420) — much lighter on CPU than main
@@ -269,32 +272,15 @@ def generate_frames():
                 time.sleep(0.1)
                 continue
 
-            # Get the actual dimensions of the captured frame
-            height, width = frame.shape[:2]
-            
-            # Handle potential padding bytes that cause color artifacts
-            # The configured width is 640, so we ensure we don't exceed that
-            if width > 640:
-                frame = frame[:, :640]
-                width = 640
-                
-            # Try multiple YUV conversion methods to find the one with best color representation
-            try:
-                # First try YV12 which often produces better colors
-                frame_bgr = cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_YV12)
-            except:
-                try:
-                    # Fallback to I420 if YV12 doesn't work
-                    frame_bgr = cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_I420)
-                except:
-                    # Last resort: convert to grayscale and then to BGR to avoid color issues
-                    frame_gray = cv2.cvtColor(frame, cv2.COLOR_YUV2GRAY_I420)
-                    frame_bgr = cv2.cvtColor(frame_gray, cv2.COLOR_GRAY2BGR)
+            # Strip hardware alignment padding bytes from the right edge.
+            # picamera2 may pad the width to a multiple of 32/64, causing color artifacts.
+            if frame.shape[1] > LORES_WIDTH:
+                frame = frame[:, :LORES_WIDTH]
 
-            # Apply slight color correction to normalize colors
-            # Adjust contrast and brightness if needed (values can be tuned)
-            frame_bgr = cv2.convertScaleAbs(frame_bgr, alpha=1.05, beta=-2)
-            
+            # picamera2 YUV420 is I420 planar format: Y plane, then U (Cb), then V (Cr).
+            # Using YV12 (Y, V, U order) here would swap red/blue — I420 is correct.
+            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_I420)
+
             # Low JPEG quality for stream — visually fine, much less CPU/bandwidth
             ret, buffer = cv2.imencode('.jpg', frame_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 65])
             if not ret:
