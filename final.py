@@ -21,11 +21,6 @@ IMAGE_DIRECTORY = "img/"
 # Ensure image directory exists
 os.makedirs(IMAGE_DIRECTORY, exist_ok=True)
 
-# Battery operation mode
-# Set to True to enable inactivity-based automatic shutdown
-# Set to False to disable inactivity-based automatic shutdown (when powered externally)
-BATTERY_OPERATION = False  # Change to True when running on battery
-
 # --- Global State & Locks ---
 state_lock = threading.Lock()
 camera_lock = threading.Lock()
@@ -41,8 +36,7 @@ try:
     # Reduced preview size slightly for better streaming performance, adjust if needed
     transform = Transform(rotation=90)
     camera.configure(camera.create_preview_configuration(
-        main={"format": 'XRGB8888', "size": (720, 1280)},   # high-res for still captures
-        lores={"size": (360, 640), "format": "YUV420"},       # low-res for live stream
+        main={"format": 'XRGB8888', "size": (720, 1280)},
         transform=transform
     ))
     camera.start()
@@ -52,9 +46,9 @@ except Exception as e:
     # You might want to exit here depending on how critical the camera is on startup
 
 # Define the buttons and LEDs
-led1_button = Button(16)  # Changed from pin 2 to avoid potential conflicts
-led2_button = Button(20)  # Changed from pin 3 to avoid I2C conflicts
-capture_button = Button(21, hold_time=2)  # Changed from pin 4 to avoid I2C conflicts
+led1_button = Button(2)
+led2_button = Button(3)
+capture_button = Button(4, hold_time=2)
 led1 = LED(18, active_high=False)
 led2 = LED(23, active_high=False)
 ledc = LED(15)
@@ -113,8 +107,7 @@ def shutdown_monitor():
             is_client_active = client_status["status"]
 
         # Power off after 15 minutes of inactivity and no active client
-        # Only when BATTERY_OPERATION is enabled
-        if BATTERY_OPERATION and duration > 900 and not is_client_active:
+        if duration > 900 and not is_client_active:
             logging.warning("Inactivity shutdown triggered.")
             # Blink LEDs rapidly before shutdown as a warning
             for _ in range(5):
@@ -259,47 +252,26 @@ def poweroff_route():
 # --- Video Streaming ---
 
 def generate_frames():
-    # Configured lores stream width — used to strip hardware alignment padding
-    LORES_WIDTH = 360
-
     while True:
-        try:
-            # Capture from lores stream (360x640 YUV420) — much lighter on CPU than main
-            with camera_lock:
-                frame = camera.capture_array("lores")
-
-            if frame is None:
-                time.sleep(0.1)
-                continue
-
-            # Strip hardware alignment padding bytes from the right edge.
-            # picamera2 may pad the width to a multiple of 32/64, causing color artifacts.
-            if frame.shape[1] > LORES_WIDTH:
-                frame = frame[:, :LORES_WIDTH]
-
-            # picamera2 YUV420 is I420 planar format: Y plane, then U (Cb), then V (Cr).
-            # Using YV12 (Y, V, U order) here would swap red/blue — I420 is correct.
-            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_I420)
-
-            # Low JPEG quality for stream — visually fine, much less CPU/bandwidth
-            ret, buffer = cv2.imencode('.jpg', frame_bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 65])
-            if not ret:
-                continue
-
-            frame_bytes = buffer.tobytes()
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-
-            # Cap at ~20fps to prevent CPU saturation on the Pi
-            time.sleep(0.05)
-
-        except GeneratorExit:
-            # Client disconnected — stop the loop cleanly
-            logging.info("Video stream client disconnected.")
-            break
-        except Exception as e:
-            logging.error(f"Streaming error: {e}")
+        # Use lock to ensure we don't try to stream while a high-res capture is happening
+        with camera_lock:
+            frame = camera.capture_array()
+        
+        if frame is None:
             time.sleep(0.1)
+            continue
+
+        # Encode frame to JPEG
+        ret, buffer = cv2.imencode('.jpg', frame)
+        if not ret:
+            continue
+            
+        frame_bytes = buffer.tobytes()
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+        
+        # Optional: small sleep to cap framerate and reduce CPU load if needed
+        # time.sleep(0.03) 
 
 @app.route('/video_feed')
 def video_feed():
