@@ -47,7 +47,7 @@ except Exception as e:
 
 # Define the buttons and LEDs
 led1_button = Button(2)
-led2_button = Button(3)
+led2_button = Button(21)
 capture_button = Button(4, hold_time=2)
 led1 = LED(18, active_high=False)
 led2 = LED(23, active_high=False)
